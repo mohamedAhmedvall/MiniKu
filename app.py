@@ -323,7 +323,7 @@ def render_sidebar() -> str:
             f"({st.session_state.task_type})"
         )
 
-    if st.sidebar.button("Reinitialiser la session", use_container_width=True):
+    if st.sidebar.button("Reinitialiser la session", width="stretch"):
         reset_all()
         st.rerun()
 
@@ -439,7 +439,7 @@ def render_source_tab() -> None:
         )
 
     st.subheader("Apercu")
-    st.dataframe(df.head(PREVIEW_ROWS), use_container_width=True, height=350)
+    st.dataframe(df.head(PREVIEW_ROWS), width="stretch", height=350)
 
 
 def render_explore_tab() -> None:
@@ -464,12 +464,12 @@ def render_explore_tab() -> None:
         )
     else:
         preview = df.head(PREVIEW_ROWS)
-    st.dataframe(preview, use_container_width=True, height=320)
+    st.dataframe(preview, width="stretch", height=320)
 
     # Profilage colonnes
     st.subheader("Profil des colonnes")
     profile = build_column_profile(df)
-    st.dataframe(profile, use_container_width=True, height=280)
+    st.dataframe(profile, width="stretch", height=280)
 
     st.markdown("---")
 
@@ -481,7 +481,7 @@ def render_explore_tab() -> None:
             if st.session_state.history else "Rien a annuler"
         )
         if st.button(undo_label, disabled=not st.session_state.history,
-                     use_container_width=True):
+                     width="stretch"):
             label = undo_last()
             st.success(f"Annule : {label}")
             st.rerun()
@@ -490,7 +490,7 @@ def render_explore_tab() -> None:
         st.download_button(
             "Telecharger CSV nettoye", csv_bytes,
             file_name="dataset_clean.csv", mime="text/csv",
-            use_container_width=True,
+            width="stretch",
         )
 
     st.markdown("---")
@@ -512,16 +512,21 @@ def render_explore_tab() -> None:
 
 
 def build_column_profile(df: pd.DataFrame) -> pd.DataFrame:
-    """Construit un dataframe de profilage par colonne."""
+    """Construit un dataframe de profilage par colonne.
+
+    Toutes les colonnes statistiques sont stockees en string pour eviter
+    le melange float/str qui casse la serialisation Arrow utilisee par
+    st.dataframe.
+    """
     rows = []
     for col in df.columns:
         s = df[col]
         sample = s.dropna()
         rows.append({
-            "Colonne": col,
+            "Colonne": str(col),
             "Type": str(s.dtype),
             "Manquantes": int(s.isna().sum()),
-            "% manquantes": round(s.isna().mean() * 100, 1),
+            "% manquantes": round(float(s.isna().mean() * 100), 1),
             "Uniques": int(s.nunique(dropna=True)),
             "Min": _safe_stat(s, "min"),
             "Max": _safe_stat(s, "max"),
@@ -531,12 +536,15 @@ def build_column_profile(df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _safe_stat(s: pd.Series, op: str):
+def _safe_stat(s: pd.Series, op: str) -> str:
+    """Retourne une stat numerique formatee en string, ou '—'."""
     if not pd.api.types.is_numeric_dtype(s):
         return "—"
     try:
         val = getattr(s, op)()
-        return round(float(val), 3) if pd.notna(val) else "—"
+        if pd.isna(val):
+            return "—"
+        return f"{float(val):.3g}"
     except Exception:
         return "—"
 
@@ -708,7 +716,7 @@ def page_modeling() -> None:
             st.write(s.describe())
         else:
             vc = s.value_counts(dropna=False).head(20)
-            st.dataframe(vc.rename("count"), use_container_width=True)
+            st.dataframe(vc.rename("count"), width="stretch")
 
     # Avertissement si pas le bon type
     if task == "Classification" and df[target].nunique() > 50:
@@ -720,7 +728,7 @@ def page_modeling() -> None:
     # Lancement
     st.markdown("---")
     if st.button(":rocket: Lancer l'AutoML", type="primary",
-                 use_container_width=True):
+                 width="stretch"):
         run_automl(df, target, task)
 
     # Resultats
@@ -731,7 +739,7 @@ def page_modeling() -> None:
             st.success(
                 f":trophy: Meilleur modele : **{st.session_state.best_model_name}**"
             )
-        st.dataframe(st.session_state.leaderboard, use_container_width=True)
+        st.dataframe(st.session_state.leaderboard, width="stretch")
 
         if os.path.exists(f"{MODEL_PATH}.pkl"):
             with open(f"{MODEL_PATH}.pkl", "rb") as f:
@@ -819,10 +827,10 @@ def page_predict() -> None:
     c2.metric("Colonnes", new_df.shape[1])
 
     st.subheader("Apercu")
-    st.dataframe(new_df.head(PREVIEW_ROWS), use_container_width=True, height=300)
+    st.dataframe(new_df.head(PREVIEW_ROWS), width="stretch", height=300)
 
     if st.button(":sparkles: Generer les predictions", type="primary",
-                 use_container_width=True):
+                 width="stretch"):
         with st.spinner("Calcul..."):
             try:
                 if st.session_state.task_type == "Classification":
@@ -837,7 +845,7 @@ def page_predict() -> None:
 
         st.success(":white_check_mark: Predictions generees.")
         st.subheader("Resultats")
-        st.dataframe(predictions.head(PREVIEW_ROWS), use_container_width=True, height=350)
+        st.dataframe(predictions.head(PREVIEW_ROWS), width="stretch", height=350)
 
         csv_bytes = predictions.to_csv(index=False).encode("utf-8")
         st.download_button(
@@ -845,7 +853,7 @@ def page_predict() -> None:
             data=csv_bytes,
             file_name="predictions.csv",
             mime="text/csv",
-            use_container_width=True,
+            width="stretch",
         )
 
 

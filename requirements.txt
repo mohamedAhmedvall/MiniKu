@@ -1,6 +1,6 @@
 # PyCaret 3.x impose numpy<1.27 ; on laisse pip choisir la meilleure wheel
 # disponible pour la version de Python utilisee (Python 3.10 ou 3.11 recommande).
-streamlit>=1.30,<2.0
+streamlit>=1.43,<2.0
 pandas>=2.0,<2.3
 numpy>=1.23,<1.27
 scikit-learn>=1.4,<1.6
