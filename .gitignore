@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+*.pkl
+.venv/
+venv/
+.env
+.DS_Store
+logs.log
+catboost_info/
+mlruns/
