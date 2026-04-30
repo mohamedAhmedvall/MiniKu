@@ -283,7 +283,8 @@ def render_sidebar() -> str:
         label_visibility="collapsed",
     )
 
-    # Pipeline visuel
+    # Pipeline visuel (unicode direct car les shortcodes :emoji: ne sont pas
+    # interpretes dans du HTML brut).
     st.sidebar.markdown("### Pipeline")
     steps = [
         ("Donnees chargees", has_data, page.startswith("1")),
@@ -292,11 +293,11 @@ def render_sidebar() -> str:
     ]
     for label, done, active in steps:
         if active:
-            cls, icon = "active", ":small_blue_diamond:"
+            cls, icon = "active", "●"
         elif done:
-            cls, icon = "done", ":white_check_mark:"
+            cls, icon = "done", "✓"
         else:
-            cls, icon = "pending", ":white_circle:"
+            cls, icon = "pending", "○"
         st.sidebar.markdown(
             f'<div class="miniku-step {cls}"><span class="icon">{icon}</span>{label}</div>',
             unsafe_allow_html=True,
