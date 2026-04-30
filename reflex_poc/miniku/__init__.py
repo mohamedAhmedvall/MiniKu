@@ -1,0 +1,1 @@
+from .miniku import app

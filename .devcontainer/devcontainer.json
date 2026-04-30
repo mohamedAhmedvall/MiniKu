@@ -17,11 +17,19 @@
     "https_proxy": "http://pxy-smi-user.somei.intranet:8080",
     "no_proxy": "localhost,127.0.0.1,.somei.intranet"
   },
-  "forwardPorts": [8501],
+  "forwardPorts": [8501, 3000, 8000],
   "portsAttributes": {
     "8501": {
       "label": "Streamlit",
       "onAutoForward": "openBrowser"
+    },
+    "3000": {
+      "label": "Reflex frontend",
+      "onAutoForward": "notify"
+    },
+    "8000": {
+      "label": "Reflex backend",
+      "onAutoForward": "silent"
     }
   },
   "postCreateCommand": "python -c \"import streamlit, pycaret, pandas; print('OK', streamlit.__version__, pycaret.__version__, pandas.__version__)\"",
