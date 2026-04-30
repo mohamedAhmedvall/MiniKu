@@ -45,7 +45,9 @@ class State(rx.State):
 
     # Selections recettes
     cols_to_drop: list[str] = []
-    nan_strategy: str = "drop"
+    # nan_strategy_label : libelle affiche dans le dropdown (rx.select).
+    # On le mappe vers une cle interne dans apply_nan.
+    nan_strategy_label: str = "Supprimer les lignes contenant des NaN"
 
     # Log des recettes appliquees
     recipes_log: list[str] = []
@@ -99,13 +101,16 @@ class State(rx.State):
         self._refresh_preview()
 
     @rx.event
-    def set_nan_strategy(self, value: str):
-        self.nan_strategy = value
+    def set_nan_strategy_label(self, value: str):
+        self.nan_strategy_label = value
 
     @rx.event
     def apply_nan(self):
+        # Inversion du mapping label -> cle interne (defini cote module).
+        label_to_key = {v: k for k, v in NAN_LABELS.items()}
+        s = label_to_key.get(self.nan_strategy_label, "drop")
+
         df = self._df.copy()
-        s = self.nan_strategy
         if s == "drop":
             before = len(df)
             df = df.dropna()
@@ -277,20 +282,24 @@ def recipe_drop_columns() -> rx.Component:
     )
 
 
+# Mapping label affiche -> valeur stockee. On n'utilise pas radio_group
+# directement car son API est plus capricieuse que rx.select (dropdown).
+NAN_LABELS = {
+    "drop": "Supprimer les lignes contenant des NaN",
+    "mean": "Remplacer par la moyenne (numerique)",
+    "median": "Remplacer par la mediane (numerique)",
+    "zero": "Remplacer par 0 (numerique)",
+}
+
+
 def recipe_nan() -> rx.Component:
     return rx.vstack(
         rx.text("Strategie pour les valeurs manquantes :", weight="medium"),
-        rx.radio_group.root(
-            rx.vstack(
-                rx.radio_group.item("drop", children=rx.text("Supprimer les lignes contenant des NaN")),
-                rx.radio_group.item("mean", children=rx.text("Remplacer par la moyenne (numerique)")),
-                rx.radio_group.item("median", children=rx.text("Remplacer par la mediane (numerique)")),
-                rx.radio_group.item("zero", children=rx.text("Remplacer par 0 (numerique)")),
-                spacing="2",
-                align_items="start",
-            ),
-            value=State.nan_strategy,
-            on_change=State.set_nan_strategy,
+        rx.select(
+            list(NAN_LABELS.values()),
+            value=State.nan_strategy_label,
+            on_change=State.set_nan_strategy_label,
+            width="100%",
         ),
         rx.button("Appliquer", on_click=State.apply_nan, color_scheme="blue"),
         spacing="3",
