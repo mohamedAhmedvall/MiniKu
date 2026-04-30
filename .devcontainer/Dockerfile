@@ -31,6 +31,7 @@ RUN if [ -n "$HTTP_PROXY" ]; then \
 # - libgomp1 : runtime OpenMP requis par lightgbm/xgboost/scikit-learn
 # - git/curl : utilitaires de dev
 # - ca-certificates : certificats TLS
+# - unzip : requis par Reflex pour installer Bun (POC reflex_poc/)
 # On evite volontairement build-essential car (1) toutes nos deps Python
 # ont des wheels pre-compilees pour cp311 linux, (2) le proxy SOMEI bloque
 # certains paquets de la chaine gcc (libstdc++-14-dev en 403).
@@ -39,6 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
         git \
         curl \
         ca-certificates \
+        unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Installation des dependances Python (cachee tant que requirements.txt ne change pas).
