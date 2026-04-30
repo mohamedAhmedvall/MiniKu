@@ -192,9 +192,16 @@ def init_state() -> None:
         "source_info": None,           # dict : filename, rows, cols, size_kb
         "task_type": None,             # "Classification" / "Regression"
         "target_column": None,
+        "features_used": None,         # liste de features utilisees a l'entrainement
+        "train_size": 0.7,
+        "budget_min": 0,               # 0 = illimite
         "leaderboard": None,
         "model_trained": False,
+        "best_model": None,            # objet estimator du meilleur modele
         "best_model_name": None,
+        "best_model_params": None,     # dict des hyperparams
+        "tuned_score": None,           # score apres tuning (si fait)
+        "training_time": None,         # duree de l'entrainement en secondes
     }
     for k, v in defaults.items():
         if k not in st.session_state:
@@ -674,7 +681,7 @@ def render_recipes_tab() -> None:
 # =============================================================================
 def page_modeling() -> None:
     st.title("Studio de Modelisation")
-    st.caption("AutoML via PyCaret : selectionne la cible, lance la comparaison.")
+    st.caption("Configure, entraine, affine et analyse ton modele.")
 
     if st.session_state.clean_df is None:
         st.warning(
@@ -685,7 +692,7 @@ def page_modeling() -> None:
 
     df = st.session_state.clean_df
 
-    # Bandeau
+    # Bandeau metriques
     c1, c2, c3 = st.columns(3)
     c1.metric("Lignes", f"{df.shape[0]:,}")
     c2.metric("Colonnes", df.shape[1])
@@ -698,58 +705,202 @@ def page_modeling() -> None:
             st.error(f":x: {issue}")
         return
 
-    # Configuration
-    st.subheader("Configuration de l'experience")
+    tab_cfg, tab_results = st.tabs(
+        ["Configuration & Entrainement", "Resultats & Analyse"]
+    )
+
+    with tab_cfg:
+        render_modeling_config(df)
+    with tab_results:
+        render_modeling_results()
+
+
+def render_modeling_config(df: pd.DataFrame) -> None:
+    """Onglet configuration : cible, features, hyperparams, lancement."""
+    st.subheader("Cible et type de tache")
     col_t, col_k = st.columns(2)
     with col_t:
-        target = st.selectbox("Colonne cible", options=list(df.columns))
+        default_target = (
+            st.session_state.target_column
+            if st.session_state.target_column in df.columns
+            else df.columns[-1]
+        )
+        target = st.selectbox(
+            "Colonne cible",
+            options=list(df.columns),
+            index=list(df.columns).index(default_target),
+        )
     with col_k:
-        task = st.radio("Type de tache", ["Classification", "Regression"],
-                        horizontal=True)
+        # Auto-detection du type
+        s = df[target]
+        suggested = (
+            "Regression"
+            if pd.api.types.is_numeric_dtype(s) and s.nunique() > 50
+            else "Classification"
+        )
+        task = st.radio(
+            "Type de tache",
+            ["Classification", "Regression"],
+            horizontal=True,
+            index=0 if suggested == "Classification" else 1,
+        )
 
-    st.session_state.target_column = target
-    st.session_state.task_type = task
+    if task != suggested:
+        st.info(
+            f":bulb: Detection auto : **{suggested}** "
+            f"(cible : {s.nunique()} valeurs uniques, type {s.dtype})."
+        )
 
     # Apercu cible
     with st.expander("Apercu de la colonne cible"):
-        s = df[target]
         if pd.api.types.is_numeric_dtype(s) and task == "Regression":
             st.write(s.describe())
         else:
             vc = s.value_counts(dropna=False).head(20)
             st.dataframe(vc.rename("count"), width="stretch")
 
-    # Avertissement si pas le bon type
-    if task == "Classification" and df[target].nunique() > 50:
-        st.warning(
-            f":warning: La cible a {df[target].nunique()} valeurs uniques. "
-            f"Es-tu sur que c'est de la **classification** et pas de la regression ?"
+    # Selection des features
+    st.subheader("Features")
+    available = [c for c in df.columns if c != target]
+    default_features = (
+        st.session_state.features_used
+        if st.session_state.features_used
+        and all(c in available for c in st.session_state.features_used)
+        else available
+    )
+    features = st.multiselect(
+        "Colonnes a utiliser comme variables predictives",
+        options=available,
+        default=default_features,
+        help="Decoche les colonnes que tu veux exclure (ID, dates brutes, etc.).",
+    )
+
+    if not features:
+        st.error("Selectionne au moins une feature.")
+        return
+
+    # Hyperparametres d'entrainement
+    st.subheader("Parametres d'entrainement")
+    col_a, col_b = st.columns(2)
+    with col_a:
+        train_size = st.slider(
+            "Proportion d'entrainement (train_size)",
+            0.6, 0.9, st.session_state.train_size, 0.05,
+            help="Le reste sert au test (validation tenue a part).",
         )
+    with col_b:
+        budget = st.number_input(
+            "Budget temps (min, 0 = illimite)",
+            min_value=0, max_value=120,
+            value=st.session_state.budget_min,
+            help="Limite la duree de compare_models. PyCaret arrete proprement.",
+        )
+
+    # Persistance config
+    st.session_state.target_column = target
+    st.session_state.task_type = task
+    st.session_state.features_used = features
+    st.session_state.train_size = train_size
+    st.session_state.budget_min = budget
 
     # Lancement
     st.markdown("---")
-    if st.button(":rocket: Lancer l'AutoML", type="primary",
-                 width="stretch"):
-        run_automl(df, target, task)
+    if st.button(":rocket: Lancer l'AutoML", type="primary", width="stretch"):
+        run_automl(df, target, task, features, train_size, budget or None)
 
-    # Resultats
-    if st.session_state.leaderboard is not None:
-        st.markdown("---")
-        st.subheader("Leaderboard")
-        if st.session_state.best_model_name:
-            st.success(
-                f":trophy: Meilleur modele : **{st.session_state.best_model_name}**"
-            )
+
+def render_modeling_results() -> None:
+    """Onglet resultats : leaderboard, tuning, plots, parametres."""
+    if st.session_state.leaderboard is None:
+        st.info("Configure et lance d'abord un entrainement.")
+        return
+
+    if st.session_state.best_model_name:
+        st.success(f":trophy: Meilleur modele : **{st.session_state.best_model_name}**")
+    if st.session_state.training_time:
+        st.caption(f"Entrainement en {st.session_state.training_time:.1f}s.")
+
+    sub_lb, sub_tune, sub_plot, sub_params = st.tabs(
+        ["Leaderboard", "Tuning", "Graphiques", "Parametres du modele"]
+    )
+
+    with sub_lb:
         st.dataframe(st.session_state.leaderboard, width="stretch")
-
         if os.path.exists(f"{MODEL_PATH}.pkl"):
             with open(f"{MODEL_PATH}.pkl", "rb") as f:
                 st.download_button(
-                    "Telecharger le modele gagnant (.pkl)",
+                    "Telecharger le modele (.pkl)",
                     data=f.read(),
                     file_name="miniku_best_model.pkl",
                     mime="application/octet-stream",
                 )
+
+    with sub_tune:
+        st.markdown(
+            "Optimise les hyperparametres du meilleur modele "
+            "(recherche aleatoire sur une grille predefinie)."
+        )
+        n_iter = st.number_input(
+            "Nombre d'iterations", min_value=5, max_value=100, value=10,
+            help="Plus eleve = meilleurs resultats mais plus lent.",
+        )
+        if st.button("Lancer le tuning", type="primary"):
+            run_tune(int(n_iter))
+        if st.session_state.tuned_score is not None:
+            st.metric(
+                "Score apres tuning (CV mean)",
+                f"{st.session_state.tuned_score:.4f}",
+            )
+
+    with sub_plot:
+        plot_options = get_plot_options(st.session_state.task_type)
+        plot_label = st.selectbox(
+            "Type de graphique",
+            options=list(plot_options.keys()),
+        )
+        if st.button("Afficher le graphique"):
+            show_plot(plot_options[plot_label])
+
+    with sub_params:
+        params = st.session_state.best_model_params or {}
+        if params:
+            st.json({k: _jsonable(v) for k, v in params.items()})
+        else:
+            st.info("Pas d'hyperparametres disponibles.")
+
+
+def get_plot_options(task: str) -> dict:
+    """Retourne le dict {label_humain: plot_id_pycaret} selon la tache."""
+    if task == "Classification":
+        return {
+            "Courbe ROC / AUC": "auc",
+            "Matrice de confusion": "confusion_matrix",
+            "Courbe d'apprentissage": "learning",
+            "Importance des features": "feature",
+            "Rapport de classification": "class_report",
+            "Erreur de prediction": "error",
+            "Calibration": "calibration",
+            "Lift curve": "lift",
+            "Gain curve": "gain",
+        }
+    return {
+        "Residus": "residuals",
+        "Erreur de prediction": "error",
+        "Courbe d'apprentissage": "learning",
+        "Importance des features": "feature",
+        "Distance de Cook": "cooks",
+        "Validation curve": "vc",
+    }
+
+
+def _jsonable(v):
+    """Rend une valeur JSON-serialisable pour st.json."""
+    try:
+        import json
+        json.dumps(v)
+        return v
+    except Exception:
+        return str(v)
 
 
 def validate_for_modeling(df: pd.DataFrame) -> list[str]:
@@ -762,36 +913,146 @@ def validate_for_modeling(df: pd.DataFrame) -> list[str]:
     return issues
 
 
-def run_automl(df: pd.DataFrame, target: str, task: str) -> None:
+def _pycaret_module(task: str):
+    """Retourne le module pycaret approprie."""
+    if task == "Classification":
+        from pycaret import classification as mod
+    else:
+        from pycaret import regression as mod
+    return mod
+
+
+def _run_setup(df: pd.DataFrame, target: str, task: str,
+               features: list[str], train_size: float):
+    """Appelle PyCaret setup() avec les options communes."""
+    mod = _pycaret_module(task)
+    ignore = [c for c in df.columns if c not in features and c != target]
+    mod.setup(
+        data=df,
+        target=target,
+        session_id=42,
+        train_size=train_size,
+        ignore_features=ignore if ignore else None,
+        verbose=False,
+        html=False,
+    )
+    return mod
+
+
+def run_automl(df: pd.DataFrame, target: str, task: str,
+               features: list[str], train_size: float,
+               budget: Optional[float]) -> None:
     if df[target].isna().any():
         st.error("La colonne cible contient des NaN. Nettoie-la dans l'Atelier.")
         return
 
-    with st.spinner("Entrainement (cela peut prendre quelques minutes)..."):
+    msg = "Entrainement AutoML en cours"
+    if budget:
+        msg += f" (budget {budget} min)"
+    msg += "..."
+
+    with st.spinner(msg):
         t0 = time.time()
         try:
-            if task == "Classification":
-                from pycaret.classification import (
-                    setup, compare_models, pull, save_model,
-                )
-            else:
-                from pycaret.regression import (
-                    setup, compare_models, pull, save_model,
-                )
-
-            setup(data=df, target=target, session_id=42, verbose=False, html=False)
-            best = compare_models()
-            leaderboard = pull()
-            save_model(best, MODEL_PATH)
-
-            st.session_state.leaderboard = leaderboard
-            st.session_state.model_trained = True
-            st.session_state.best_model_name = leaderboard.index[0] if len(leaderboard) else None
+            mod = _run_setup(df, target, task, features, train_size)
+            kwargs = {}
+            if budget:
+                kwargs["budget_time"] = float(budget)
+            best = mod.compare_models(**kwargs)
+            leaderboard = mod.pull()
+            mod.save_model(best, MODEL_PATH)
         except Exception as e:
             st.error(f":x: Erreur PyCaret : {e}")
             return
 
-    st.success(f":white_check_mark: Entrainement termine en {time.time() - t0:.1f}s.")
+    duration = time.time() - t0
+    st.session_state.leaderboard = leaderboard
+    st.session_state.model_trained = True
+    st.session_state.best_model = best
+    st.session_state.best_model_name = (
+        leaderboard.index[0] if len(leaderboard) else None
+    )
+    st.session_state.best_model_params = (
+        best.get_params() if hasattr(best, "get_params") else {}
+    )
+    st.session_state.tuned_score = None
+    st.session_state.training_time = duration
+
+    st.success(
+        f":white_check_mark: Entrainement termine en {duration:.1f}s. "
+        f"Va dans **Resultats & Analyse**."
+    )
+
+
+def run_tune(n_iter: int) -> None:
+    """Optimise les hyperparametres du meilleur modele courant."""
+    if st.session_state.best_model is None:
+        st.error("Pas de modele a tuner.")
+        return
+
+    with st.spinner(f"Tuning en cours ({n_iter} iterations)..."):
+        try:
+            mod = _run_setup(
+                st.session_state.clean_df,
+                st.session_state.target_column,
+                st.session_state.task_type,
+                st.session_state.features_used or
+                [c for c in st.session_state.clean_df.columns
+                 if c != st.session_state.target_column],
+                st.session_state.train_size,
+            )
+            tuned = mod.tune_model(st.session_state.best_model, n_iter=n_iter)
+            tuned_lb = mod.pull()
+            # La derniere ligne du tableau pull() est generalement la moyenne CV
+            score_col = tuned_lb.columns[0]
+            mean_row = tuned_lb.loc["Mean"] if "Mean" in tuned_lb.index else tuned_lb.iloc[-1]
+            score = float(mean_row[score_col])
+            mod.save_model(tuned, MODEL_PATH)
+        except Exception as e:
+            st.error(f":x: Erreur tuning : {e}")
+            return
+
+    st.session_state.best_model = tuned
+    st.session_state.best_model_params = (
+        tuned.get_params() if hasattr(tuned, "get_params") else {}
+    )
+    st.session_state.tuned_score = score
+    st.success(":white_check_mark: Tuning termine. Modele mis a jour.")
+    st.rerun()
+
+
+def show_plot(plot_id: str) -> None:
+    """Affiche un graphique PyCaret pour le best model."""
+    if st.session_state.best_model is None:
+        st.error("Aucun modele a afficher.")
+        return
+
+    with st.spinner(f"Generation du graphique '{plot_id}'..."):
+        try:
+            mod = _run_setup(
+                st.session_state.clean_df,
+                st.session_state.target_column,
+                st.session_state.task_type,
+                st.session_state.features_used or
+                [c for c in st.session_state.clean_df.columns
+                 if c != st.session_state.target_column],
+                st.session_state.train_size,
+            )
+            img_path = mod.plot_model(
+                st.session_state.best_model,
+                plot=plot_id,
+                save=True,
+            )
+        except Exception as e:
+            st.error(
+                f":x: Impossible d'afficher ce graphique pour ce modele : {e}"
+            )
+            return
+
+    if img_path and os.path.exists(img_path):
+        st.image(img_path, width="stretch")
+    else:
+        st.warning("Aucun fichier image genere.")
 
 
 # =============================================================================
