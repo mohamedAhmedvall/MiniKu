@@ -27,10 +27,14 @@ RUN if [ -n "$HTTP_PROXY" ]; then \
         echo "Acquire::https::Proxy \"${HTTPS_PROXY:-$HTTP_PROXY}\";" >> /etc/apt/apt.conf.d/00proxy ; \
     fi
 
-# Dependances systeme : compilateur (au cas ou un package n'a pas de wheel),
-# libgomp pour lightgbm/xgboost, git/curl pour debug.
+# Dependances systeme minimales :
+# - libgomp1 : runtime OpenMP requis par lightgbm/xgboost/scikit-learn
+# - git/curl : utilitaires de dev
+# - ca-certificates : certificats TLS
+# On evite volontairement build-essential car (1) toutes nos deps Python
+# ont des wheels pre-compilees pour cp311 linux, (2) le proxy SOMEI bloque
+# certains paquets de la chaine gcc (libstdc++-14-dev en 403).
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential \
         libgomp1 \
         git \
         curl \
@@ -38,10 +42,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Installation des dependances Python (cachee tant que requirements.txt ne change pas).
+# --only-binary=:all: force l'usage des wheels et echoue vite si un paquet
+# tente une compilation source (ce qui necessiterait gcc).
 WORKDIR /workspaces/MiniKu
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install --upgrade pip \
-    && pip install -r /tmp/requirements.txt
+    && pip install --only-binary=:all: -r /tmp/requirements.txt
 
 EXPOSE 8501
 
