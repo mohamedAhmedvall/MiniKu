@@ -1,0 +1,24 @@
+services:
+  miniku:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+    image: miniku:latest
+    container_name: miniku
+    environment:
+      HTTP_PROXY: ${HTTP_PROXY:-}
+      HTTPS_PROXY: ${HTTPS_PROXY:-}
+      NO_PROXY: ${NO_PROXY:-}
+      http_proxy: ${HTTP_PROXY:-}
+      https_proxy: ${HTTPS_PROXY:-}
+      no_proxy: ${NO_PROXY:-}
+    ports:
+      - "8501:8501"
+    volumes:
+      - .:/workspaces/MiniKu
+    working_dir: /workspaces/MiniKu
+    command: streamlit run app.py --server.address=0.0.0.0 --server.port=8501
