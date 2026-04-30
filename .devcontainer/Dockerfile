@@ -1,9 +1,11 @@
 FROM python:3.11-slim
 
-# -- Proxy d'entreprise (passes en build args, optionnels) --
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ARG NO_PROXY
+# -- Proxy d'entreprise --
+# Valeurs par defaut adaptees au reseau SOMEI. Surchargeable via --build-arg
+# ou via les build.args du devcontainer.json / docker-compose.yml.
+ARG HTTP_PROXY=http://pxy-smi-user.somei.intranet:8080
+ARG HTTPS_PROXY=http://pxy-smi-user.somei.intranet:8080
+ARG NO_PROXY=localhost,127.0.0.1,.somei.intranet
 
 # Variables d'environnement pour pip / apt / outils Python.
 # On expose les deux casses (UPPER et lower) car certains outils (curl, requests)
